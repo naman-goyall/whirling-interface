@@ -2,14 +2,44 @@
 
 A real-time computer vision system that detects hand gestures to control TV interfaces.
 
-## Supported Gestures
+## Two Recognition Systems
 
-- **Circular Clockwise**: Rotate hand in clockwise circle
-- **Circular Counter-Clockwise**: Rotate hand in counter-clockwise circle
-- **Swipe Left**: Move hand from right to left
-- **Swipe Right**: Move hand from left to right
-- **Swipe Up**: Move hand from bottom to top
-- **Swipe Down**: Move hand from top to bottom
+### 1. **Orbit-Based Gestures** (NEW - Whirling Style) ⭐
+Position-independent circular motion recognition inspired by the Whirling Interface research.
+
+**All gestures are circles with different speeds/directions:**
+- **Slow Clockwise**: Channel Up (3s per rotation)
+- **Slow Counter-Clockwise**: Channel Down (3s per rotation)
+- **Fast Clockwise**: Volume Up (1.5s per rotation)
+- **Fast Counter-Clockwise**: Volume Down (1.5s per rotation)
+- **Medium Clockwise**: Play (2s per rotation)
+- **Medium Counter-Clockwise**: Pause (2s per rotation)
+
+**Key Features:**
+- ✅ No cursor needed - perform gestures anywhere on screen
+- ✅ Uses Pearson correlation for robust matching
+- ✅ Real-time visual feedback with correlation scores
+- ✅ Simpler to learn - only circular motions at different speeds
+
+**Run the orbit-based controller:**
+```bash
+python tv_orbit_controller.py
+```
+
+See [ORBIT_GESTURES.md](ORBIT_GESTURES.md) for detailed documentation.
+
+### 2. **Shape-Based Gestures** (Original)
+Traditional shape tracing with cursor following.
+
+**Gestures:**
+- Circular Clockwise / Counter-Clockwise
+- Triangle, Square, Diamond
+- Swipe gestures (up/down/left/right)
+
+**Run the shape-based controller:**
+```bash
+python tv_gesture_controller.py
+```
 
 ## Installation
 
@@ -46,8 +76,17 @@ pip install -r requirements.txt
 
 ## Usage
 
-Run the hand gesture detection:
+### Quick Start (Orbit-Based - Recommended)
+```bash
+python tv_orbit_controller.py
+```
 
+### Original System (Shape-Based)
+```bash
+python tv_gesture_controller.py
+```
+
+### Basic Hand Detection Only
 ```bash
 python hand_gesture_detector.py
 ```
@@ -58,17 +97,28 @@ python hand_gesture_detector.py
 
 ## How It Works
 
-1. **Hand Detection**: Uses MediaPipe Hands to detect and track 21 hand landmarks in real-time
-2. **Gesture Recognition**: Analyzes hand movement patterns to identify gestures:
-   - Tracks hand position history over time
-   - Detects directional movements for swipes
-   - Analyzes circular patterns for rotation gestures
-3. **Visual Feedback**: Displays detected gestures and hand landmarks on screen
+### Orbit-Based System (NEW)
+1. **Hand Detection**: MediaPipe tracks hand landmarks (palm center)
+2. **Orbit Matching**: 6 reference circles continuously rotate at different speeds
+3. **Correlation Calculation**: Pearson correlation compares hand trajectory with each orbit
+4. **State Machine**: Tracks progression from IDLE → PERFORMING → PENDING → SELECTED
+5. **Command Execution**: When correlation held above 0.85 for 1.5s, command triggers
 
-## Future Integration
+### Shape-Based System (Original)
+1. **Hand Detection**: Uses MediaPipe Hands to detect and track 21 hand landmarks
+2. **Template Matching**: Compares hand movement with animated shape templates
+3. **Sync Scoring**: Measures how well hand follows the template animation
+4. **Visual Feedback**: Displays detected gestures and hand landmarks
 
-This system will be integrated with a TV interface where:
-- Counter-clockwise circle → Channel selection
-- Swipe up/down → Volume control
-- Swipe left/right → Menu navigation
-# whirling-interface
+## Documentation
+
+- **[ORBIT_GESTURES.md](ORBIT_GESTURES.md)**: Complete guide to orbit-based recognition
+- **[ARCHITECTURE.md](ARCHITECTURE.md)**: System architecture overview
+- **[PROJECT_STATUS.md](PROJECT_STATUS.md)**: Development status and roadmap
+
+## Research Background
+
+The orbit-based system is inspired by:
+**"Whirling Interface: Hand-based Motion Matching Selection for Small Target on XR Displays"**
+- Juyoung Lee et al., IEEE ISMAR 2024
+- [Project Page](https://juyounglee.net/projects/whirling)
