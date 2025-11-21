@@ -80,8 +80,8 @@ class OrbitGestureRecognizer:
     """
     
     # Detection thresholds
-    LOW_THRESHOLD = 0.75
-    HIGH_THRESHOLD = 0.85
+    LOW_THRESHOLD = 0.65
+    HIGH_THRESHOLD = 0.75
     PENDING_TIME_THRESHOLD = 1.5  # seconds
     
     # Frame limits

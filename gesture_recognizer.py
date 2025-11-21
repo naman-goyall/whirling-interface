@@ -336,8 +336,8 @@ class GestureRecognizer:
                     best_score = avg_score
                     best_gesture = gesture_name
         
-        # Need at least 70% average sync to detect (stricter)
-        if best_score > 0.7 and best_gesture:
+        # Need at least 60% average sync to detect
+        if best_score > 0.6 and best_gesture:
             self.current_gesture = best_gesture
             self.gesture_confidence = best_score
             self.gesture_cooldown = self.cooldown_frames
