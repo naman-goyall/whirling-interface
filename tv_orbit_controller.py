@@ -57,6 +57,14 @@ class TVOrbitController:
         self.last_command = None
         self.command_cooldown = 0
         
+        # Volume ramping for sustained gestures
+        self.last_volume_gesture = None
+        self.volume_gesture_count = 0
+        self.volume_step_sizes = [5, 10, 15, 20]  # Progressive step sizes
+        self.last_volume_gesture_frame = 0
+        self.volume_gesture_timeout = 90  # Reset if no gesture for 90 frames (~3 seconds)
+        self.current_frame = 0
+        
     def start(self):
         """Start the TV orbit controller."""
         # Open camera for hand detection
@@ -88,9 +96,14 @@ class TVOrbitController:
         print("  3. Match the speed and direction of the desired command")
         print("  4. Keep matching for ~1.5 seconds to trigger")
         print("  5. NO CURSOR NEEDED - just move in circles!")
-        print("\nControls:")
+        print("\nKeyboard Controls:")
         print("  - Press 'q' to quit")
-        print("  - Press 'r' to reset")
+        print("  - Press 'r' to reset gestures")
+        print("  - Up Arrow = Volume Up")
+        print("  - Down Arrow = Volume Down")
+        print("  - Right Arrow = Next Channel")
+        print("  - Left Arrow = Previous Channel")
+        print("  - Space = Play/Pause Toggle")
         print("=" * 60)
         
         while True:
@@ -116,6 +129,19 @@ class TVOrbitController:
             elif key == ord('r'):
                 self.gesture_recognizer.reset()
                 print("Gesture detection reset")
+            elif key == 0:  # Up arrow
+                self.handle_keyboard_command('VOLUME_UP')
+            elif key == 1:  # Down arrow
+                self.handle_keyboard_command('VOLUME_DOWN')
+            elif key == 2:  # Right arrow
+                self.handle_keyboard_command('CHANNEL_UP')
+            elif key == 3:  # Left arrow
+                self.handle_keyboard_command('CHANNEL_DOWN')
+            elif key == 32:  # Space
+                if self.is_paused:
+                    self.handle_keyboard_command('PLAY')
+                else:
+                    self.handle_keyboard_command('PAUSE')
         
         self.cleanup()
     
@@ -138,6 +164,7 @@ class TVOrbitController:
     
     def process_frame(self, camera_frame):
         """Process a single frame."""
+        self.current_frame += 1
         h, w, _ = camera_frame.shape
         
         # Get TV channel frame as background
@@ -220,30 +247,87 @@ class TVOrbitController:
             command = self.gesture_commands[gesture]
             
             if gesture == 'VOLUME_UP':
-                self.volume = min(100, self.volume + 5)
-                self.last_command = f"Volume: {self.volume}%"
+                # Check if this is a continuous gesture (within timeout)
+                frames_since_last = self.current_frame - self.last_volume_gesture_frame
+                is_continuous = (self.last_volume_gesture == 'VOLUME_UP' and 
+                                frames_since_last < self.volume_gesture_timeout)
+                
+                # Ramp up step size for continuous volume gestures
+                if is_continuous:
+                    self.volume_gesture_count += 1
+                else:
+                    self.volume_gesture_count = 0
+                    self.last_volume_gesture = 'VOLUME_UP'
+                
+                self.last_volume_gesture_frame = self.current_frame
+                
+                # Get step size based on consecutive count (capped)
+                step_index = min(self.volume_gesture_count, len(self.volume_step_sizes) - 1)
+                step_size = self.volume_step_sizes[step_index]
+                
+                self.volume = min(100, self.volume + step_size)
+                self.last_command = f"Volume: {self.volume}% (+{step_size})"
             elif gesture == 'VOLUME_DOWN':
-                self.volume = max(0, self.volume - 5)
-                self.last_command = f"Volume: {self.volume}%"
+                # Check if this is a continuous gesture (within timeout)
+                frames_since_last = self.current_frame - self.last_volume_gesture_frame
+                is_continuous = (self.last_volume_gesture == 'VOLUME_DOWN' and 
+                                frames_since_last < self.volume_gesture_timeout)
+                
+                # Ramp up step size for continuous volume gestures
+                if is_continuous:
+                    self.volume_gesture_count += 1
+                else:
+                    self.volume_gesture_count = 0
+                    self.last_volume_gesture = 'VOLUME_DOWN'
+                
+                self.last_volume_gesture_frame = self.current_frame
+                
+                # Get step size based on consecutive count (capped)
+                step_index = min(self.volume_gesture_count, len(self.volume_step_sizes) - 1)
+                step_size = self.volume_step_sizes[step_index]
+                
+                self.volume = max(0, self.volume - step_size)
+                self.last_command = f"Volume: {self.volume}% (-{step_size})"
             elif gesture == 'CHANNEL_UP':
+                # Reset volume ramping when switching to non-volume gesture
+                self.last_volume_gesture = None
+                self.volume_gesture_count = 0
+                
                 self.current_channel = (self.current_channel + 1) % len(self.channels)
                 self.load_channel(self.current_channel)
                 self.last_command = f"Channel: {self.current_channel + 1}"
             elif gesture == 'CHANNEL_DOWN':
+                # Reset volume ramping when switching to non-volume gesture
+                self.last_volume_gesture = None
+                self.volume_gesture_count = 0
+                
                 self.current_channel = (self.current_channel - 1) % len(self.channels)
                 self.load_channel(self.current_channel)
                 self.last_command = f"Channel: {self.current_channel + 1}"
             elif gesture == 'PLAY':
+                # Reset volume ramping when switching to non-volume gesture
+                self.last_volume_gesture = None
+                self.volume_gesture_count = 0
+                
                 self.is_paused = False
                 self.paused_frame = None  # Clear cached frame when resuming
                 self.last_command = "Playing"
             elif gesture == 'PAUSE':
+                # Reset volume ramping when switching to non-volume gesture
+                self.last_volume_gesture = None
+                self.volume_gesture_count = 0
+                
                 self.is_paused = True
                 # Frame will be cached on next _get_tv_frame call
                 self.last_command = "Paused"
             
             print(f"Command: {self.last_command}")
             self.command_cooldown = 30  # Cooldown frames before next command
+    
+    def handle_keyboard_command(self, gesture):
+        """Handle keyboard input as if it were a gesture command."""
+        # Bypass cooldown for keyboard commands
+        self.execute_gesture_command(gesture)
     
     def _draw_ui(self, frame, gesture, confidence, hand_detected):
         """Draw UI overlay."""
@@ -270,12 +354,12 @@ class TVOrbitController:
         if self.last_command and self.command_cooldown > 0:
             cmd_y = 120
             overlay = frame.copy()
-            cv2.rectangle(overlay, (0, cmd_y), (w, cmd_y + 80), (0, 50, 0), -1)
-            frame_blend = cv2.addWeighted(frame, 0.5, overlay, 0.5, 0)
+            cv2.rectangle(overlay, (0, cmd_y), (w, cmd_y + 80), (0, 0, 0), -1)
+            frame_blend = cv2.addWeighted(frame, 0.3, overlay, 0.7, 0)
             frame[cmd_y:cmd_y + 80] = frame_blend[cmd_y:cmd_y + 80]
             
             cv2.putText(frame, f"Command: {self.last_command}", (20, cmd_y + 50),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
         
         # Draw orbit visualizations only if hand is detected
         if hand_detected:
@@ -291,7 +375,7 @@ class TVOrbitController:
         
         # Controls
         controls_y = h - 40
-        cv2.putText(frame, "Press 'q' to quit | 'r' to reset", (20, controls_y),
+        cv2.putText(frame, "Press 'q' to quit | Arrow keys: Vol/Ch | Space: Play/Pause", (20, controls_y),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
     
     def _draw_orbit_gestures(self, frame):

@@ -58,6 +58,13 @@ class TVGestureController:
         self.last_command = None
         self.command_cooldown = 0
         
+        # Volume ramping for sustained gestures
+        self.last_volume_gesture = None
+        self.volume_gesture_count = 0
+        self.volume_step_sizes = [5, 10, 15, 20]  # Progressive step sizes
+        self.last_volume_gesture_frame = 0
+        self.volume_gesture_timeout = 90  # Reset if no gesture for 90 frames (~3 seconds)
+        
     def start(self):
         """Start the TV gesture controller."""
         # Open camera for hand detection
@@ -87,9 +94,14 @@ class TVGestureController:
         print("  1. See the 6 gesture animations when hand detected")
         print("  2. Follow the moving yellow ball with your hand")
         print("  3. Match timing for ~2 seconds to trigger command")
-        print("\nControls:")
+        print("\nKeyboard Controls:")
         print("  - Press 'q' to quit")
-        print("  - Press 'r' to reset")
+        print("  - Press 'r' to reset gestures")
+        print("  - Up Arrow = Volume Up")
+        print("  - Down Arrow = Volume Down")
+        print("  - Right Arrow = Next Channel")
+        print("  - Left Arrow = Previous Channel")
+        print("  - Space = Play/Pause Toggle")
         print("=" * 50)
         
         while True:
@@ -118,6 +130,19 @@ class TVGestureController:
             elif key == ord('r'):
                 self.gesture_recognizer.reset()
                 print("Gesture detection reset")
+            elif key == 0:  # Up arrow
+                self.handle_keyboard_command('TRIANGLE')
+            elif key == 1:  # Down arrow
+                self.handle_keyboard_command('SQUARE')
+            elif key == 2:  # Right arrow
+                self.handle_keyboard_command('CIRCLE_CLOCKWISE')
+            elif key == 3:  # Left arrow
+                self.handle_keyboard_command('CIRCLE_COUNTER_CLOCKWISE')
+            elif key == 32:  # Space
+                if self.is_paused:
+                    self.handle_keyboard_command('DIAMOND')
+                else:
+                    self.handle_keyboard_command('SQUARE_REVERSE')
         
         self.cleanup()
     
@@ -212,28 +237,85 @@ class TVGestureController:
             command = self.gesture_commands[gesture]
             
             if gesture == 'TRIANGLE':
-                self.volume = min(100, self.volume + 5)
-                self.last_command = f"Volume: {self.volume}%"
+                # Check if this is a continuous gesture (within timeout)
+                frames_since_last = self.frame_count - self.last_volume_gesture_frame
+                is_continuous = (self.last_volume_gesture == 'TRIANGLE' and 
+                                frames_since_last < self.volume_gesture_timeout)
+                
+                # Ramp up step size for continuous volume gestures
+                if is_continuous:
+                    self.volume_gesture_count += 1
+                else:
+                    self.volume_gesture_count = 0
+                    self.last_volume_gesture = 'TRIANGLE'
+                
+                self.last_volume_gesture_frame = self.frame_count
+                
+                # Get step size based on consecutive count (capped)
+                step_index = min(self.volume_gesture_count, len(self.volume_step_sizes) - 1)
+                step_size = self.volume_step_sizes[step_index]
+                
+                self.volume = min(100, self.volume + step_size)
+                self.last_command = f"Volume: {self.volume}% (+{step_size})"
             elif gesture == 'SQUARE':
-                self.volume = max(0, self.volume - 5)
-                self.last_command = f"Volume: {self.volume}%"
+                # Check if this is a continuous gesture (within timeout)
+                frames_since_last = self.frame_count - self.last_volume_gesture_frame
+                is_continuous = (self.last_volume_gesture == 'SQUARE' and 
+                                frames_since_last < self.volume_gesture_timeout)
+                
+                # Ramp up step size for continuous volume gestures
+                if is_continuous:
+                    self.volume_gesture_count += 1
+                else:
+                    self.volume_gesture_count = 0
+                    self.last_volume_gesture = 'SQUARE'
+                
+                self.last_volume_gesture_frame = self.frame_count
+                
+                # Get step size based on consecutive count (capped)
+                step_index = min(self.volume_gesture_count, len(self.volume_step_sizes) - 1)
+                step_size = self.volume_step_sizes[step_index]
+                
+                self.volume = max(0, self.volume - step_size)
+                self.last_command = f"Volume: {self.volume}% (-{step_size})"
             elif gesture == 'CIRCLE_CLOCKWISE':
+                # Reset volume ramping when switching to non-volume gesture
+                self.last_volume_gesture = None
+                self.volume_gesture_count = 0
+                
                 self.current_channel = (self.current_channel + 1) % len(self.channels)
                 self.load_channel(self.current_channel)
                 self.last_command = f"Channel: {self.current_channel + 1}"
             elif gesture == 'CIRCLE_COUNTER_CLOCKWISE':
+                # Reset volume ramping when switching to non-volume gesture
+                self.last_volume_gesture = None
+                self.volume_gesture_count = 0
+                
                 self.current_channel = (self.current_channel - 1) % len(self.channels)
                 self.load_channel(self.current_channel)
                 self.last_command = f"Channel: {self.current_channel + 1}"
             elif gesture == 'DIAMOND':
+                # Reset volume ramping when switching to non-volume gesture
+                self.last_volume_gesture = None
+                self.volume_gesture_count = 0
+                
                 self.is_paused = False
                 self.last_command = "Playing"
             elif gesture == 'SQUARE_REVERSE':
+                # Reset volume ramping when switching to non-volume gesture
+                self.last_volume_gesture = None
+                self.volume_gesture_count = 0
+                
                 self.is_paused = True
                 self.last_command = "Paused"
             
             print(f"Command: {self.last_command}")
             self.command_cooldown = 30  # Cooldown frames before next command
+    
+    def handle_keyboard_command(self, gesture):
+        """Handle keyboard input as if it were a gesture command."""
+        # Bypass cooldown for keyboard commands
+        self.execute_gesture_command(gesture)
     
     def _draw_hand_cursor(self, frame):
         """Draw cursor at hand position."""
@@ -279,12 +361,12 @@ class TVGestureController:
         if self.last_command and self.command_cooldown > 0:
             cmd_y = 140
             overlay = frame.copy()
-            cv2.rectangle(overlay, (0, cmd_y), (w, cmd_y + 80), (0, 50, 0), -1)
-            frame_blend = cv2.addWeighted(frame, 0.5, overlay, 0.5, 0)
+            cv2.rectangle(overlay, (0, cmd_y), (w, cmd_y + 80), (0, 0, 0), -1)
+            frame_blend = cv2.addWeighted(frame, 0.3, overlay, 0.7, 0)
             frame[cmd_y:cmd_y + 80] = frame_blend[cmd_y:cmd_y + 80]
             
             cv2.putText(frame, f"Command: {self.last_command}", (20, cmd_y + 50),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
         
         # Draw gesture templates only if hand is detected
         if hand_detected:
@@ -292,7 +374,7 @@ class TVGestureController:
         
         # Controls
         controls_y = h - 40
-        cv2.putText(frame, "Press 'q' to quit | 'r' to reset", (20, controls_y),
+        cv2.putText(frame, "Press 'q' to quit | Arrow keys: Vol/Ch | Space: Play/Pause", (20, controls_y),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
     
     def _draw_gesture_templates(self, frame):
